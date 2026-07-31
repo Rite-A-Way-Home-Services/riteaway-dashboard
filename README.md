@@ -24,6 +24,18 @@ Team dashboard for **missioncontrol.callriteaway.com** — revenue, jobs, tech u
 | `WORK_HOURS_PER_DAY` | No | Default 8. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Recommended | Free Upstash Redis db so break-even edits persist for the whole team. Without it, edits revert to the env default when serverless instances recycle. |
 
+## Adding Google Ads + Google reviews
+
+**Google reviews (easy — API key only).** In [Google Cloud console](https://console.cloud.google.com): create/pick a project → APIs & Services → enable **Places API (New)** → Credentials → Create API key. Add it as `GOOGLE_PLACES_API_KEY` in Vercel, plus `GOOGLE_PLACE_QUERY` (e.g. `Rite-A-Way Garage Doors Phoenix`) — the dashboard resolves and caches your place ID automatically. Rating and review count are *current* values; they don't change with the period filter. Restrict the key to the Places API in the console so it can't be abused if leaked.
+
+**Google Ads (slower — needs approval).** Three pieces:
+
+1. **Developer token**: Google Ads UI → Tools → API Center. Request one; basic access approval usually takes a few days.
+2. **OAuth credentials**: Cloud console → Credentials → OAuth client ID (Desktop app). Gives `GOOGLE_ADS_CLIENT_ID` + `GOOGLE_ADS_CLIENT_SECRET`.
+3. **Refresh token**: run through the OAuth consent flow once with scope `https://www.googleapis.com/auth/adwords` to get `GOOGLE_ADS_REFRESH_TOKEN`.
+
+Then add those plus `GOOGLE_ADS_CUSTOMER_ID` (digits only) — and `GOOGLE_ADS_LOGIN_CUSTOMER_ID` if the account lives under a manager account. Ad cards stay hidden until all five are present.
+
 ## Metric definitions (v1 — all in `lib/metrics.js`)
 
 - **Revenue** — sum of completed Housecall Pro job totals in the period.

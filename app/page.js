@@ -107,13 +107,22 @@ export default function Dashboard() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setData(json);
+      try { localStorage.setItem(`metrics:${p}`, JSON.stringify(json)); } catch {}
     } catch (e) {
       setError(e.message);
     }
   }, []);
 
   useEffect(() => {
-    setData(null);
+    // Instant paint: show the last numbers we saw for this period while
+    // fresh data loads in the background.
+    let cachedShown = false;
+    try {
+      const cached = localStorage.getItem(`metrics:${period}`);
+      if (cached) { setData(JSON.parse(cached)); cachedShown = true; }
+    } catch {}
+    if (!cachedShown) setData(null);
+
     load(period);
     const t = setInterval(() => load(period), 60_000); // auto-refresh every minute
     return () => clearInterval(t);
@@ -139,7 +148,7 @@ export default function Dashboard() {
           </h1>
           <div className="sub">
             {data
-              ? `${new Date(data.range.start).toLocaleDateString()} → ${new Date(data.range.end).toLocaleDateString()} · updated ${new Date(data.generatedAt).toLocaleTimeString()}`
+              ? `${new Date(data.range.start).toLocaleDateString('en-US', { timeZone: 'UTC' })} → ${new Date(data.range.end).toLocaleDateString('en-US', { timeZone: 'UTC' })} · updated ${new Date(data.generatedAt).toLocaleTimeString()}`
               : 'Loading…'}
           </div>
         </div>

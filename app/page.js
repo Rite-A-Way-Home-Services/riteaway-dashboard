@@ -316,6 +316,36 @@ export default function Dashboard() {
               delta={<Delta value={data.calls.value} prev={data.calls.prev} />}
               detail={`Ringba ${num(data.calls.breakdown.ringba)} · HCP ${num(data.calls.breakdown.housecall)}`}
             />
+
+            {data.ads && (
+              <>
+                <MetricCard
+                  label="Ad Spend"
+                  value={usd(data.ads.spend)}
+                  delta={<Delta value={data.ads.spend} prev={data.ads.prevSpend} invert />}
+                  detail={
+                    data.ads.costPerLead != null
+                      ? `${usd(data.ads.costPerLead)} per lead`
+                      : 'no leads yet this period'
+                  }
+                />
+                <MetricCard
+                  label="Ad Clicks"
+                  value={num(data.ads.clicks)}
+                  delta={<Delta value={data.ads.clicks} prev={data.ads.prevClicks} />}
+                  detail={`${num(data.ads.impressions)} impressions · ${(data.ads.ctr * 100).toFixed(1)}% CTR`}
+                />
+              </>
+            )}
+
+            {data.reviews && data.reviews.rating != null && (
+              <MetricCard
+                label="Google Rating"
+                value={`${data.reviews.rating.toFixed(1)} ★`}
+                delta={<div className="delta flat">{num(data.reviews.count)} reviews</div>}
+                detail="current total, not period-based"
+              />
+            )}
           </div>
 
           <div className="card wide chart-card">

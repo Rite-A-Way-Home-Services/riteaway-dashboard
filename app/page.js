@@ -42,6 +42,101 @@ function MetricCard({ label, value, delta, detail }) {
   );
 }
 
+function UtilizationCard({ data, onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [techs, setTechs] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [pickError, setPickError] = useState('');
+
+  async function openPicker() {
+    setOpen(true);
+    setPickError('');
+    setTechs(null);
+    try {
+      const res = await fetch('/api/technicians', { cache: 'no-store' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      const selected = json.selected || [];
+      setTechs(
+        (json.technicians || []).map((t) => ({
+          ...t,
+          checked: selected.length ? selected.includes(t.name) : false,
+        }))
+      );
+    } catch (e) {
+      setPickError(e.message);
+    }
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const names = techs.filter((t) => t.checked).map((t) => t.name);
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ techNames: names }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      setOpen(false);
+      onSaved();
+    } catch (e) {
+      setPickError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="label">Tech Utilization</div>
+      <div className="value">{pct(data.utilization.value)}</div>
+      <Delta value={data.utilization.value} prev={data.utilization.prev} />
+      <div className="detail">
+        {data.techCount} technician{data.techCount === 1 ? '' : 's'}
+        {' · '}
+        <button
+          className="btn-ghost"
+          style={{ padding: '2px 8px', fontSize: 11 }}
+          onClick={() => (open ? setOpen(false) : openPicker())}
+        >
+          {open ? 'close' : 'choose techs'}
+        </button>
+      </div>
+      {open && (
+        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+          {pickError && <div className="detail" style={{ color: 'var(--red)' }}>{pickError}</div>}
+          {!techs && !pickError && <div className="detail">Loading technicians…</div>}
+          {techs && (
+            <>
+              {techs.map((t, i) => (
+                <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 0', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={t.checked}
+                    onChange={(e) => {
+                      const next = [...techs];
+                      next[i] = { ...t, checked: e.target.checked };
+                      setTechs(next);
+                    }}
+                  />
+                  {t.name}
+                </label>
+              ))}
+              <div className="detail" style={{ margin: '6px 0' }}>
+                Unchecked everyone = automatic detection
+              </div>
+              <button className="btn-small" onClick={save} disabled={busy}>
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BreakEven({ breakEven, revenue, onSave }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -124,7 +219,7 @@ export default function Dashboard() {
     if (!cachedShown) setData(null);
 
     load(period);
-    const t = setInterval(() => load(period), 60_000); // auto-refresh every minute
+    const t = setInterval(() => load(period), 300_000); // auto-refresh every 5 minutes
     return () => clearInterval(t);
   }, [period, load]);
 
@@ -189,12 +284,7 @@ export default function Dashboard() {
               value={num(data.jobs.value)}
               delta={<Delta value={data.jobs.value} prev={data.jobs.prev} />}
             />
-            <MetricCard
-              label="Tech Utilization"
-              value={pct(data.utilization.value)}
-              delta={<Delta value={data.utilization.value} prev={data.utilization.prev} />}
-              detail={`${data.techCount} technician${data.techCount === 1 ? '' : 's'}`}
-            />
+            <UtilizationCard data={data} onSaved={() => load(period)} />
             <MetricCard
               label="Lead Volume"
               value={num(data.leads.value)}
@@ -233,7 +323,7 @@ export default function Dashboard() {
           </div>
 
           <div className="footer">
-            Auto-refreshes every 60s · Sources: Housecall Pro{data.mode === 'live' ? '' : ' (mock)'} + Ringba
+            Auto-refreshes every 5 min · Sources: Housecall Pro{data.mode === 'live' ? '' : ' (mock)'} + Ringba
           </div>
         </>
       )}

@@ -1,0 +1,233 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
+
+const PERIODS = [
+  { id: 'day', label: 'Day' },
+  { id: 'week', label: 'Week' },
+  { id: 'month', label: 'Month' },
+  { id: 'quarter', label: 'Quarter' },
+  { id: 'year', label: 'Year' },
+  { id: 'all', label: 'All-Time' },
+];
+
+const usd = (n) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
+const num = (n) => new Intl.NumberFormat('en-US').format(n || 0);
+const pct = (n) => `${Math.round((n || 0) * 100)}%`;
+
+function Delta({ value, prev, invert = false }) {
+  if (prev == null || prev === 0) return <div className="delta flat">— vs prior period</div>;
+  const change = (value - prev) / prev;
+  const up = change >= 0;
+  const good = invert ? !up : up;
+  return (
+    <div className={`delta ${good ? 'up' : 'down'}`}>
+      {up ? '▲' : '▼'} {Math.abs(change * 100).toFixed(1)}% vs prior period
+    </div>
+  );
+}
+
+function MetricCard({ label, value, delta, detail }) {
+  return (
+    <div className="card">
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+      {delta}
+      {detail && <div className="detail">{detail}</div>}
+    </div>
+  );
+}
+
+function BreakEven({ breakEven, revenue, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const progress = Math.min(breakEven.progress, 1);
+  const over = breakEven.progress >= 1;
+
+  return (
+    <div className="card wide">
+      <div className="breakeven-row">
+        <div className="label">Break-Even Target</div>
+        {editing ? (
+          <span className="editable-target">
+            <input
+              type="number"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Monthly $"
+              autoFocus
+            />
+            <button className="btn-small" onClick={() => { onSave(Number(draft)); setEditing(false); }}>Save</button>
+            <button className="btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
+          </span>
+        ) : (
+          <button
+            className="btn-ghost"
+            onClick={() => { setDraft(String(breakEven.monthlyTarget)); setEditing(true); }}
+          >
+            {usd(breakEven.monthlyTarget)}/mo — edit
+          </button>
+        )}
+      </div>
+      <div className="breakeven-bar">
+        <div
+          className="fill"
+          style={{
+            width: `${progress * 100}%`,
+            background: over ? 'var(--green)' : progress > 0.7 ? 'var(--amber)' : 'var(--accent)',
+          }}
+        />
+      </div>
+      <div className="breakeven-row">
+        <span className="detail" style={{ color: 'var(--text-dim)', fontSize: 13 }}>
+          {usd(revenue)} of {usd(breakEven.periodTarget)} target this period
+        </span>
+        <span style={{ fontWeight: 700, color: over ? 'var(--green)' : 'var(--text)' }}>
+          {pct(breakEven.progress)}{over ? ' ✓ past break-even' : ''}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const [period, setPeriod] = useState('month');
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async (p) => {
+    setError('');
+    try {
+      const res = await fetch(`/api/metrics?period=${p}`, { cache: 'no-store' });
+      if (res.status === 401) { window.location.href = '/login'; return; }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setData(json);
+    } catch (e) {
+      setError(e.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    setData(null);
+    load(period);
+    const t = setInterval(() => load(period), 60_000); // auto-refresh every minute
+    return () => clearInterval(t);
+  }, [period, load]);
+
+  async function saveBreakEven(monthly) {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monthlyBreakEven: monthly }),
+    });
+    if (res.ok) load(period);
+    else setError('Failed to save break-even target');
+  }
+
+  return (
+    <div className="container">
+      <div className="header">
+        <div>
+          <h1>
+            RITE-A-WAY MISSION CONTROL
+            {data && <span className={`badge ${data.mode}`}>{data.mode.toUpperCase()}</span>}
+          </h1>
+          <div className="sub">
+            {data
+              ? `${new Date(data.range.start).toLocaleDateString()} → ${new Date(data.range.end).toLocaleDateString()} · updated ${new Date(data.generatedAt).toLocaleTimeString()}`
+              : 'Loading…'}
+          </div>
+        </div>
+        <div className="period-filter">
+          {PERIODS.map((p) => (
+            <button
+              key={p.id}
+              className={period === p.id ? 'active' : ''}
+              onClick={() => setPeriod(p.id)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && <div className="error-banner">⚠ {error}</div>}
+      {data?.warnings?.map((w, i) => (
+        <div key={i} className="error-banner" style={{ borderColor: 'var(--amber)', color: 'var(--amber)', background: 'rgba(251,191,36,0.08)' }}>
+          {w}
+        </div>
+      ))}
+
+      {!data && !error && <div className="spinner">Loading metrics…</div>}
+
+      {data && (
+        <>
+          <BreakEven breakEven={data.breakEven} revenue={data.revenue.value} onSave={saveBreakEven} />
+
+          <div className="grid">
+            <MetricCard
+              label="Revenue"
+              value={usd(data.revenue.value)}
+              delta={<Delta value={data.revenue.value} prev={data.revenue.prev} />}
+            />
+            <MetricCard
+              label="Jobs"
+              value={num(data.jobs.value)}
+              delta={<Delta value={data.jobs.value} prev={data.jobs.prev} />}
+            />
+            <MetricCard
+              label="Tech Utilization"
+              value={pct(data.utilization.value)}
+              delta={<Delta value={data.utilization.value} prev={data.utilization.prev} />}
+              detail={`${data.techCount} technician${data.techCount === 1 ? '' : 's'}`}
+            />
+            <MetricCard
+              label="Lead Volume"
+              value={num(data.leads.value)}
+              delta={<Delta value={data.leads.value} prev={data.leads.prev} />}
+            />
+            <MetricCard
+              label="Call Volume"
+              value={num(data.calls.value)}
+              delta={<Delta value={data.calls.value} prev={data.calls.prev} />}
+              detail={`Ringba ${num(data.calls.breakdown.ringba)} · HCP ${num(data.calls.breakdown.housecall)}`}
+            />
+          </div>
+
+          <div className="card wide chart-card">
+            <div className="label">Revenue Trend</div>
+            <div style={{ width: '100%', height: 260, marginTop: 16 }}>
+              <ResponsiveContainer>
+                <AreaChart data={data.revenue.series} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#1e2a45" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" stroke="#8b9bbd" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#8b9bbd" fontSize={11} tickLine={false} tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} />
+                  <Tooltip
+                    formatter={(v) => [usd(v), 'Revenue']}
+                    contentStyle={{ background: '#111a2e', border: '1px solid #1e2a45', borderRadius: 8, color: '#e8eefc' }}
+                  />
+                  <Area type="monotone" dataKey="revenue" stroke="#38bdf8" strokeWidth={2} fill="url(#rev)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="footer">
+            Auto-refreshes every 60s · Sources: Housecall Pro{data.mode === 'live' ? '' : ' (mock)'} + Ringba
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

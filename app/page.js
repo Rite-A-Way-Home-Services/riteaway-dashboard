@@ -42,14 +42,22 @@ function MetricCard({ label, value, delta, detail }) {
   );
 }
 
-function UtilizationCard({ data, onSaved }) {
+function UtilizationCard({ data, onSaved, onPickerOpen }) {
   const [open, setOpen] = useState(false);
   const [techs, setTechs] = useState(null);
   const [busy, setBusy] = useState(false);
   const [pickError, setPickError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  function close() {
+    setOpen(false);
+    onPickerOpen(false);
+  }
 
   async function openPicker() {
     setOpen(true);
+    setSaved(false);
+    onPickerOpen(true); // pause auto-refresh so the list can't reset under you
     setPickError('');
     setTechs(null);
     try {
@@ -78,7 +86,12 @@ function UtilizationCard({ data, onSaved }) {
         body: JSON.stringify({ techNames: names }),
       });
       if (!res.ok) throw new Error('save failed');
-      setOpen(false);
+      const json = await res.json();
+      // Reflect exactly what the server stored, so a failed write can't look
+      // like a success.
+      const stored = json.techNames || [];
+      setTechs((cur) => cur.map((t) => ({ ...t, checked: stored.includes(t.name) })));
+      setSaved(true);
       onSaved();
     } catch (e) {
       setPickError(e.message);
@@ -98,7 +111,7 @@ function UtilizationCard({ data, onSaved }) {
         <button
           className="btn-ghost"
           style={{ padding: '2px 8px', fontSize: 11 }}
-          onClick={() => (open ? setOpen(false) : openPicker())}
+          onClick={() => (open ? close() : openPicker())}
         >
           {open ? 'close' : 'choose techs'}
         </button>
@@ -129,6 +142,11 @@ function UtilizationCard({ data, onSaved }) {
               <button className="btn-small" onClick={save} disabled={busy}>
                 {busy ? 'Saving…' : 'Save'}
               </button>
+              {saved && (
+                <span style={{ color: 'var(--green)', fontSize: 12, marginLeft: 8 }}>
+                  ✓ Saved ({techs.filter((t) => t.checked).length} selected)
+                </span>
+              )}
             </>
           )}
         </div>
@@ -193,6 +211,7 @@ export default function Dashboard() {
   const [period, setPeriod] = useState('month');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [paused, setPaused] = useState(false);
 
   const load = useCallback(async (p) => {
     setError('');
@@ -219,9 +238,10 @@ export default function Dashboard() {
     if (!cachedShown) setData(null);
 
     load(period);
+    if (paused) return; // a settings picker is open — don't refresh under it
     const t = setInterval(() => load(period), 300_000); // auto-refresh every 5 minutes
     return () => clearInterval(t);
-  }, [period, load]);
+  }, [period, load, paused]);
 
   async function saveBreakEven(monthly) {
     const res = await fetch('/api/settings', {
@@ -284,7 +304,7 @@ export default function Dashboard() {
               value={num(data.jobs.value)}
               delta={<Delta value={data.jobs.value} prev={data.jobs.prev} />}
             />
-            <UtilizationCard data={data} onSaved={() => load(period)} />
+            <UtilizationCard data={data} onSaved={() => load(period)} onPickerOpen={setPaused} />
             <MetricCard
               label="Lead Volume"
               value={num(data.leads.value)}

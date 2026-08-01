@@ -40,18 +40,27 @@ function MetricCard({ label, value, delta, detail }) {
 function ReviewsCard({ reviews, onSaved, onEditOpen }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [count, setCount] = useState('');
-  const [rating, setRating] = useState('');
+  const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const many = (reviews.locations || []).length > 1;
 
+  const blank = { label: '', count: '', rating: '' };
+
   function openEditor() {
-    setCount(String(reviews.manual?.count ?? ''));
-    setRating(String(reviews.manual?.rating ?? ''));
+    const existing = (reviews.manual || []).map((m) => ({
+      label: m.label || '',
+      count: String(m.count ?? ''),
+      rating: String(m.rating ?? ''),
+    }));
+    setRows(existing.length ? existing : [{ ...blank }]);
     setErr('');
     setEditing(true);
     onEditOpen(true);
+  }
+
+  function setRow(i, patch) {
+    setRows((cur) => cur.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   }
   function closeEditor() {
     setEditing(false);
@@ -66,7 +75,7 @@ function ReviewsCard({ reviews, onSaved, onEditOpen }) {
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manualReviews: { count, rating } }),
+        body: JSON.stringify({ manualReviews: rows }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'save failed');
@@ -98,18 +107,60 @@ function ReviewsCard({ reviews, onSaved, onEditOpen }) {
 
       {open && editing && (
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-          <div className="detail" style={{ marginBottom: 6 }}>
+          <div className="detail" style={{ marginBottom: 8 }}>
             Service-area listings (entered by hand)
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <label className="mini-field">
-              <span># of reviews</span>
-              <input value={count} onChange={(e) => setCount(e.target.value)} inputMode="numeric" placeholder="e.g. 640" />
-            </label>
-            <label className="mini-field">
-              <span>Avg rating</span>
-              <input value={rating} onChange={(e) => setRating(e.target.value)} inputMode="decimal" placeholder="e.g. 4.8" />
-            </label>
+
+          {rows.map((r, i) => (
+            <div key={i} className="manual-row">
+              <label className="mini-field" style={{ flex: 1, minWidth: 120 }}>
+                <span>Area</span>
+                <input
+                  style={{ width: '100%' }}
+                  value={r.label}
+                  onChange={(e) => setRow(i, { label: e.target.value })}
+                  placeholder="e.g. Mesa"
+                />
+              </label>
+              <label className="mini-field" style={{ width: 78 }}>
+                <span># reviews</span>
+                <input
+                  style={{ width: '100%' }}
+                  value={r.count}
+                  onChange={(e) => setRow(i, { count: e.target.value })}
+                  inputMode="numeric"
+                  placeholder="120"
+                />
+              </label>
+              <label className="mini-field" style={{ width: 70 }}>
+                <span>Avg ★</span>
+                <input
+                  style={{ width: '100%' }}
+                  value={r.rating}
+                  onChange={(e) => setRow(i, { rating: e.target.value })}
+                  inputMode="decimal"
+                  placeholder="4.8"
+                />
+              </label>
+              <button
+                className="btn-ghost"
+                style={{ padding: '4px 8px', alignSelf: 'flex-end' }}
+                onClick={() => setRows((cur) => (cur.length > 1 ? cur.filter((_, j) => j !== i) : [{ ...blank }]))}
+                aria-label="Remove listing"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn-ghost"
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              onClick={() => setRows((cur) => [...cur, { ...blank }])}
+            >
+              + add listing
+            </button>
             <button className="btn-small" onClick={saveManual} disabled={busy}>
               {busy ? 'Saving…' : 'Save'}
             </button>
@@ -146,7 +197,7 @@ function ReviewsCard({ reviews, onSaved, onEditOpen }) {
               style={{ marginTop: 8, fontSize: 11, padding: '4px 10px' }}
               onClick={openEditor}
             >
-              {reviews.manual?.count ? 'edit manual entry' : 'add service-area reviews'}
+              {(reviews.manual || []).length ? 'edit service-area listings' : 'add service-area listings'}
             </button>
           )}
         </div>

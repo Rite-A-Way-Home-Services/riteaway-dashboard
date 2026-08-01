@@ -139,6 +139,7 @@ body {
 .status-chip.in_progress { background: #dbeafe; color: #1d4ed8; }
 .status-chip.done { background: #dcfce7; color: var(--green); }
 
+.manual-row { display: flex; gap: 6px; align-items: flex-end; margin-bottom: 6px; flex-wrap: wrap; }
 .mini-field { display: flex; flex-direction: column; gap: 3px; }
 .mini-field span { font-size: 11px; color: var(--text-dim); }
 .mini-field input {

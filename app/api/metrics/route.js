@@ -3,6 +3,8 @@ import { computeMetrics } from '@/lib/metrics';
 import { PERIODS } from '@/lib/periods';
 
 export const dynamic = 'force-dynamic';
+// Pulling ~10 months of invoice history can exceed the default 10s limit.
+export const maxDuration = 60;
 
 // 5-minute in-memory cache per period: the first viewer pays the API cost,
 // everyone else on the same server instance gets an instant response.

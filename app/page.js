@@ -1,21 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Nav from './components/Nav';
+import PeriodPicker from './components/PeriodPicker';
 import {
   BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts';
 
-const PERIODS = [
-  { id: 'day', label: 'Day' },
-  { id: 'week', label: 'Week' },
-  { id: 'month', label: 'Month' },
-  { id: 'quarter', label: 'Quarter' },
-  { id: 'year', label: 'Year' },
-  { id: 'all', label: 'All-Time' },
-  { id: 'custom', label: 'Custom' },
-];
-
-const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysAgoStr = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 
 const usd = (n) =>
@@ -46,9 +37,47 @@ function MetricCard({ label, value, delta, detail }) {
   );
 }
 
-function ReviewsCard({ reviews }) {
+function ReviewsCard({ reviews, onSaved, onEditOpen }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [count, setCount] = useState('');
+  const [rating, setRating] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
   const many = (reviews.locations || []).length > 1;
+
+  function openEditor() {
+    setCount(String(reviews.manual?.count ?? ''));
+    setRating(String(reviews.manual?.rating ?? ''));
+    setErr('');
+    setEditing(true);
+    onEditOpen(true);
+  }
+  function closeEditor() {
+    setEditing(false);
+    setErr('');
+    onEditOpen(false);
+  }
+
+  async function saveManual() {
+    setBusy(true);
+    setErr('');
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualReviews: { count, rating } }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'save failed');
+      closeEditor();
+      onSaved();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="card">
@@ -56,20 +85,39 @@ function ReviewsCard({ reviews }) {
       <div className="value">{reviews.rating.toFixed(2)} ★</div>
       <div className="delta flat">{num(reviews.count)} reviews</div>
       <div className="detail">
-        {many ? `${reviews.locations.length} listings · weighted` : 'current total'}
-        {many && (
-          <>
-            {' · '}
-            <button
-              className="btn-ghost"
-              style={{ padding: '2px 8px', fontSize: 11 }}
-              onClick={() => setOpen(!open)}
-            >
-              {open ? 'hide' : 'by location'}
-            </button>
-          </>
-        )}
+        {many ? `${reviews.locations.length} sources · weighted` : 'current total'}
+        {' · '}
+        <button
+          className="btn-ghost"
+          style={{ padding: '2px 8px', fontSize: 11 }}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'hide' : 'details'}
+        </button>
       </div>
+
+      {open && editing && (
+        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+          <div className="detail" style={{ marginBottom: 6 }}>
+            Service-area listings (entered by hand)
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label className="mini-field">
+              <span># of reviews</span>
+              <input value={count} onChange={(e) => setCount(e.target.value)} inputMode="numeric" placeholder="e.g. 640" />
+            </label>
+            <label className="mini-field">
+              <span>Avg rating</span>
+              <input value={rating} onChange={(e) => setRating(e.target.value)} inputMode="decimal" placeholder="e.g. 4.8" />
+            </label>
+            <button className="btn-small" onClick={saveManual} disabled={busy}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            <button className="btn-ghost" onClick={closeEditor}>Cancel</button>
+          </div>
+          {err && <div className="detail" style={{ color: 'var(--red)', marginTop: 6 }}>{err}</div>}
+        </div>
+      )}
 
       {open && (
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
@@ -91,6 +139,15 @@ function ReviewsCard({ reviews }) {
             <div className="detail" style={{ color: 'var(--amber)', marginTop: 6 }}>
               {reviews.failures.length} listing(s) couldn’t be read
             </div>
+          )}
+          {!editing && (
+            <button
+              className="btn-ghost"
+              style={{ marginTop: 8, fontSize: 11, padding: '4px 10px' }}
+              onClick={openEditor}
+            >
+              {reviews.manual?.count ? 'edit manual entry' : 'add service-area reviews'}
+            </button>
           )}
         </div>
       )}
@@ -305,52 +362,45 @@ function BreakEven({ breakEven, revenue, onSave, onEditOpen }) {
 }
 
 export default function Dashboard() {
-  const [period, setPeriod] = useState('month');
+  const [sel, setSel] = useState({ preset: 'month', period: 'month' });
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [paused, setPaused] = useState(false);
-  const [from, setFrom] = useState(daysAgoStr(29));
-  const [to, setTo] = useState(todayStr());
-  // Only the applied range triggers fetches — typing a date shouldn't.
-  const [applied, setApplied] = useState({ from: daysAgoStr(29), to: todayStr() });
 
-  const load = useCallback(async (p, range) => {
+  const load = useCallback(async (s) => {
     setError('');
     const qs =
-      p === 'custom'
-        ? `period=custom&from=${range.from}&to=${range.to}`
-        : `period=${p}`;
+      s.period === 'custom'
+        ? `period=custom&from=${s.from}&to=${s.to}`
+        : `period=${s.period}`;
     try {
       const res = await fetch(`/api/metrics?${qs}`, { cache: 'no-store' });
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setData(json);
-      try { localStorage.setItem(`metrics:${qs}`, JSON.stringify(json)); } catch {}
+      try { localStorage.setItem(`metrics:${s.period}:${s.from || ''}:${s.to || ''}`, JSON.stringify(json)); } catch {}
     } catch (e) {
       setError(e.message);
     }
   }, []);
 
   useEffect(() => {
-    // Instant paint: show the last numbers we saw for this period while
-    // fresh data loads in the background.
-    let cachedShown = false;
-    const key =
-      period === 'custom'
-        ? `metrics:period=custom&from=${applied.from}&to=${applied.to}`
-        : `metrics:period=${period}`;
+    // Instant paint: show the last numbers we saw for this range while fresh
+    // data loads in the background.
+    const key = `metrics:${sel.period}:${sel.from || ''}:${sel.to || ''}`;
+    let shown = false;
     try {
       const cached = localStorage.getItem(key);
-      if (cached) { setData(JSON.parse(cached)); cachedShown = true; }
+      if (cached) { setData(JSON.parse(cached)); shown = true; }
     } catch {}
-    if (!cachedShown) setData(null);
+    if (!shown) setData(null);
 
-    load(period, applied);
+    load(sel);
     if (paused) return; // a settings picker is open — don't refresh under it
-    const t = setInterval(() => load(period, applied), 300_000); // every 5 minutes
+    const t = setInterval(() => load(sel), 300_000);
     return () => clearInterval(t);
-  }, [period, load, paused, applied]);
+  }, [sel, load, paused]);
 
   async function saveBreakEven(monthly) {
     const res = await fetch('/api/settings', {
@@ -359,11 +409,9 @@ export default function Dashboard() {
       body: JSON.stringify({ monthlyBreakEven: monthly }),
     });
     if (!res.ok) return false;
-    await load(period, applied);
+    await load(sel);
     return true;
   }
-
-  const customValid = from && to && from <= to;
 
   // Chart ceiling: tallest bar or the break-even line, whichever is higher.
   const chartMax = data
@@ -391,47 +439,14 @@ export default function Dashboard() {
               : 'Loading…'}
           </div>
         </div>
-        <div>
-          <div className="period-filter">
-            {PERIODS.map((p) => (
-              <button
-                key={p.id}
-                className={period === p.id ? 'active' : ''}
-                onClick={() => setPeriod(p.id)}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          {period === 'custom' && (
-            <div className="date-range">
-              <input
-                type="date"
-                value={from}
-                max={to || todayStr()}
-                onChange={(e) => setFrom(e.target.value)}
-                aria-label="Start date"
-              />
-              <span className="detail">→</span>
-              <input
-                type="date"
-                value={to}
-                min={from}
-                onChange={(e) => setTo(e.target.value)}
-                aria-label="End date"
-              />
-              <button
-                className="btn-small"
-                disabled={!customValid}
-                onClick={() => setApplied({ from, to })}
-              >
-                Apply
-              </button>
-            </div>
-          )}
-        </div>
+        <PeriodPicker
+          preset={sel.preset}
+          range={{ from: sel.from, to: sel.to }}
+          onApply={setSel}
+        />
       </div>
+
+      <Nav />
 
       {error && <div className="error-banner">⚠ {error}</div>}
       {data?.warnings?.map((w, i) => (
@@ -462,7 +477,7 @@ export default function Dashboard() {
               value={num(data.jobs.value)}
               delta={<Delta value={data.jobs.value} prev={data.jobs.prev} />}
             />
-            <UtilizationCard data={data} onSaved={() => load(period, applied)} onPickerOpen={setPaused} />
+            <UtilizationCard data={data} onSaved={() => load(sel)} onPickerOpen={setPaused} />
             <MetricCard
               label="Lead Volume"
               value={num(data.leads.value)}
@@ -497,7 +512,7 @@ export default function Dashboard() {
             )}
 
             {data.reviews && data.reviews.rating != null && (
-              <ReviewsCard reviews={data.reviews} />
+              <ReviewsCard reviews={data.reviews} onSaved={() => load(sel)} onEditOpen={setPaused} />
             )}
           </div>
 

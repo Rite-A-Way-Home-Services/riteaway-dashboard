@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import {
   getBreakEvenMonthly, setBreakEvenMonthly,
-  getTechNames, setTechNames, isPersistent,
+  getTechNames, setTechNames,
+  getManualReviews, setManualReviews,
+  isPersistent,
 } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,7 @@ async function currentSettings() {
   return {
     monthlyBreakEven: await getBreakEvenMonthly(),
     techNames: await getTechNames(),
+    manualReviews: await getManualReviews(),
     persistent: isPersistent(),
   };
 }
@@ -23,6 +26,7 @@ export async function POST(req) {
     const body = await req.json();
     if (body.monthlyBreakEven !== undefined) await setBreakEvenMonthly(body.monthlyBreakEven);
     if (body.techNames !== undefined) await setTechNames(body.techNames);
+    if (body.manualReviews !== undefined) await setManualReviews(body.manualReviews);
     // Settings affect computed metrics -> drop the metrics cache.
     globalThis.__metricsCache = new Map();
     return NextResponse.json(await currentSettings());

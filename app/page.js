@@ -211,11 +211,40 @@ function UtilizationCard({ data, onSaved, onPickerOpen }) {
   );
 }
 
-function BreakEven({ breakEven, revenue, onSave }) {
+function BreakEven({ breakEven, revenue, onSave, onEditOpen }) {
   const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
   const [draft, setDraft] = useState('');
   const progress = Math.min(breakEven.progress, 1);
   const over = breakEven.progress >= 1;
+
+  // Tolerate "$175,000" style input.
+  const parsed = Number(String(draft).replace(/[^0-9.]/g, ''));
+  const valid = Number.isFinite(parsed) && parsed > 0;
+
+  function close() {
+    setEditing(false);
+    setErr('');
+    onEditOpen(false);
+  }
+
+  async function commit() {
+    if (!valid) { setErr('enter a number'); return; }
+    setBusy(true);
+    setErr('');
+    try {
+      const ok = await onSave(parsed);
+      if (ok === false) throw new Error('save failed');
+      setSaved(true);
+      close();
+    } catch (e) {
+      setErr(e.message || 'save failed');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="card wide">
@@ -224,22 +253,34 @@ function BreakEven({ breakEven, revenue, onSave }) {
         {editing ? (
           <span className="editable-target">
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && valid) commit(); }}
               placeholder="Monthly $"
               autoFocus
             />
-            <button className="btn-small" onClick={() => { onSave(Number(draft)); setEditing(false); }}>Save</button>
-            <button className="btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
+            <button className="btn-small" onClick={commit} disabled={busy || !valid}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            <button className="btn-ghost" onClick={close}>Cancel</button>
+            {err && <span style={{ color: 'var(--red)', fontSize: 12 }}>{err}</span>}
           </span>
         ) : (
-          <button
-            className="btn-ghost"
-            onClick={() => { setDraft(String(breakEven.monthlyTarget)); setEditing(true); }}
-          >
-            {usd(breakEven.monthlyTarget)}/mo — edit
-          </button>
+          <span className="editable-target">
+            <button
+              className="btn-ghost"
+              onClick={() => {
+                setDraft(String(breakEven.monthlyTarget));
+                setErr(''); setSaved(false); setEditing(true);
+                onEditOpen(true); // pause auto-refresh while typing
+              }}
+            >
+              {usd(breakEven.monthlyTarget)}/mo — edit
+            </button>
+            {saved && <span style={{ color: 'var(--green)', fontSize: 12 }}>✓ Saved</span>}
+          </span>
         )}
       </div>
       <div className="breakeven-bar">
@@ -317,11 +358,24 @@ export default function Dashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ monthlyBreakEven: monthly }),
     });
-    if (res.ok) load(period, applied);
-    else setError('Failed to save break-even target');
+    if (!res.ok) return false;
+    await load(period, applied);
+    return true;
   }
 
   const customValid = from && to && from <= to;
+
+  // Chart ceiling: tallest bar or the break-even line, whichever is higher.
+  const chartMax = data
+    ? Math.ceil(
+        (Math.max(
+          ...data.revenue.series.map((s) => s.revenue || 0),
+          data.breakEven.monthlyTarget || 0
+        ) *
+          1.08) /
+          1000
+      ) * 1000
+    : 0;
 
   return (
     <div className="container">
@@ -390,7 +444,12 @@ export default function Dashboard() {
 
       {data && (
         <div className="dash-stack">
-          <BreakEven breakEven={data.breakEven} revenue={data.revenue.value} onSave={saveBreakEven} />
+          <BreakEven
+            breakEven={data.breakEven}
+            revenue={data.revenue.value}
+            onSave={saveBreakEven}
+            onEditOpen={setPaused}
+          />
 
           <div className="grid">
             <MetricCard
@@ -449,41 +508,48 @@ export default function Dashboard() {
             <div style={{ width: '100%', height: 260, marginTop: 16 }}>
               <ResponsiveContainer>
                 <BarChart data={data.revenue.series} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
-                  <CartesianGrid stroke="#1e2a45" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" stroke="#8b9bbd" fontSize={11} tickLine={false} />
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" stroke="#5c6b82" fontSize={11} tickLine={false} />
                   {/* Domain always includes the break-even line so it stays visible. */}
                   <YAxis
-                    stroke="#8b9bbd"
+                    stroke="#5c6b82"
                     fontSize={11}
                     tickLine={false}
-                    domain={[0, (dataMax) => Math.ceil((Math.max(dataMax, data.breakEven.monthlyTarget) * 1.08) / 1000) * 1000]}
+                    domain={[0, chartMax]}
                     tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}
                   />
                   <Tooltip
                     formatter={(v) => [usd(v), 'Revenue']}
-                    cursor={{ fill: 'rgba(56,189,248,0.08)' }}
-                    contentStyle={{ background: '#111a2e', border: '1px solid #1e2a45', borderRadius: 8, color: '#e8eefc' }}
+                    cursor={{ fill: 'rgba(3,105,161,0.06)' }}
+                    contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, color: '#131a26', boxShadow: '0 4px 12px rgba(16,24,40,0.08)' }}
                   />
-                  {/* Green bars cleared break-even that month, blue fell short. */}
-                  <Bar dataKey="revenue" radius={[3, 3, 0, 0]} maxBarSize={48}>
+                  {/* Green bars cleared break-even that month, blue fell short.
+                      Animation off: it can leave bars stuck at zero height. */}
+                  <Bar
+                    dataKey="revenue"
+                    fill="#0369a1"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={48}
+                    isAnimationActive={false}
+                  >
                     {data.revenue.series.map((d, i) => (
                       <Cell
                         key={i}
-                        fill={d.revenue >= data.breakEven.monthlyTarget ? '#34d399' : '#38bdf8'}
+                        fill={d.revenue >= data.breakEven.monthlyTarget ? '#15803d' : '#0369a1'}
                       />
                     ))}
                   </Bar>
                   {/* Monthly break-even line — months above it cleared costs. */}
                   <ReferenceLine
                     y={data.breakEven.monthlyTarget}
-                    stroke="#34d399"
+                    stroke="#15803d"
                     strokeWidth={2}
                     strokeDasharray="6 4"
                     ifOverflow="extendDomain"
                     label={{
                       value: `break-even ${usd(data.breakEven.monthlyTarget)}`,
                       position: 'insideTopLeft',
-                      fill: '#34d399',
+                      fill: '#15803d',
                       fontSize: 11,
                     }}
                   />

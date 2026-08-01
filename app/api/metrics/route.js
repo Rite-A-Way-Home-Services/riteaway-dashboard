@@ -4,31 +4,40 @@ import { PERIODS } from '@/lib/periods';
 
 export const dynamic = 'force-dynamic';
 
-// 60s in-memory cache per period: the first viewer pays the API cost,
+// 5-minute in-memory cache per period: the first viewer pays the API cost,
 // everyone else on the same server instance gets an instant response.
-const TTL_MS = 60_000;
+const TTL_MS = 300_000;
 function cache() {
   if (!globalThis.__metricsCache) globalThis.__metricsCache = new Map();
   return globalThis.__metricsCache;
 }
 
 export async function GET(req) {
-  const period = req.nextUrl.searchParams.get('period') || 'month';
+  const params = req.nextUrl.searchParams;
+  const period = params.get('period') || 'month';
   if (!PERIODS.includes(period)) {
     return NextResponse.json({ error: `period must be one of: ${PERIODS.join(', ')}` }, { status: 400 });
   }
 
-  const hit = cache().get(period);
+  const custom =
+    period === 'custom' ? { from: params.get('from'), to: params.get('to') } : null;
+  const cacheKey = custom ? `custom:${custom.from}:${custom.to}` : period;
+
+  const hit = cache().get(cacheKey);
   if (hit && Date.now() - hit.ts < TTL_MS) {
     return NextResponse.json({ ...hit.data, cached: true });
   }
 
   try {
-    const metrics = await computeMetrics(period);
-    cache().set(period, { data: metrics, ts: Date.now() });
+    const metrics = await computeMetrics(period, custom);
+    cache().set(cacheKey, { data: metrics, ts: Date.now() });
     return NextResponse.json(metrics);
   } catch (e) {
     console.error('metrics error:', e);
+    // Bad custom dates are the caller's fault, not an upstream failure.
+    if (/date|from and to/i.test(e.message)) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
     // Serve stale data (up to 10 min old) rather than an error if we have it.
     if (hit && Date.now() - hit.ts < 10 * TTL_MS) {
       return NextResponse.json({ ...hit.data, cached: true, stale: true });

@@ -12,7 +12,11 @@ const PERIODS = [
   { id: 'quarter', label: 'Quarter' },
   { id: 'year', label: 'Year' },
   { id: 'all', label: 'All-Time' },
+  { id: 'custom', label: 'Custom' },
 ];
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const daysAgoStr = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 
 const usd = (n) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
@@ -38,6 +42,58 @@ function MetricCard({ label, value, delta, detail }) {
       <div className="value">{value}</div>
       {delta}
       {detail && <div className="detail">{detail}</div>}
+    </div>
+  );
+}
+
+function ReviewsCard({ reviews }) {
+  const [open, setOpen] = useState(false);
+  const many = (reviews.locations || []).length > 1;
+
+  return (
+    <div className="card">
+      <div className="label">Google Rating</div>
+      <div className="value">{reviews.rating.toFixed(2)} ★</div>
+      <div className="delta flat">{num(reviews.count)} reviews</div>
+      <div className="detail">
+        {many ? `${reviews.locations.length} listings · weighted` : 'current total'}
+        {many && (
+          <>
+            {' · '}
+            <button
+              className="btn-ghost"
+              style={{ padding: '2px 8px', fontSize: 11 }}
+              onClick={() => setOpen(!open)}
+            >
+              {open ? 'hide' : 'by location'}
+            </button>
+          </>
+        )}
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+          {reviews.locations.map((l) => (
+            <div
+              key={l.id}
+              style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '3px 0' }}
+            >
+              <span style={{ color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {l.label || l.name}
+              </span>
+              <span style={{ whiteSpace: 'nowrap' }}>
+                {l.rating != null ? `${l.rating.toFixed(1)} ★` : '—'}{' '}
+                <span style={{ color: 'var(--text-dim)' }}>({num(l.count)})</span>
+              </span>
+            </div>
+          ))}
+          {reviews.failures?.length > 0 && (
+            <div className="detail" style={{ color: 'var(--amber)', marginTop: 6 }}>
+              {reviews.failures.length} listing(s) couldn’t be read
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -212,16 +268,24 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [paused, setPaused] = useState(false);
+  const [from, setFrom] = useState(daysAgoStr(29));
+  const [to, setTo] = useState(todayStr());
+  // Only the applied range triggers fetches — typing a date shouldn't.
+  const [applied, setApplied] = useState({ from: daysAgoStr(29), to: todayStr() });
 
-  const load = useCallback(async (p) => {
+  const load = useCallback(async (p, range) => {
     setError('');
+    const qs =
+      p === 'custom'
+        ? `period=custom&from=${range.from}&to=${range.to}`
+        : `period=${p}`;
     try {
-      const res = await fetch(`/api/metrics?period=${p}`, { cache: 'no-store' });
+      const res = await fetch(`/api/metrics?${qs}`, { cache: 'no-store' });
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setData(json);
-      try { localStorage.setItem(`metrics:${p}`, JSON.stringify(json)); } catch {}
+      try { localStorage.setItem(`metrics:${qs}`, JSON.stringify(json)); } catch {}
     } catch (e) {
       setError(e.message);
     }
@@ -231,17 +295,21 @@ export default function Dashboard() {
     // Instant paint: show the last numbers we saw for this period while
     // fresh data loads in the background.
     let cachedShown = false;
+    const key =
+      period === 'custom'
+        ? `metrics:period=custom&from=${applied.from}&to=${applied.to}`
+        : `metrics:period=${period}`;
     try {
-      const cached = localStorage.getItem(`metrics:${period}`);
+      const cached = localStorage.getItem(key);
       if (cached) { setData(JSON.parse(cached)); cachedShown = true; }
     } catch {}
     if (!cachedShown) setData(null);
 
-    load(period);
+    load(period, applied);
     if (paused) return; // a settings picker is open — don't refresh under it
-    const t = setInterval(() => load(period), 300_000); // auto-refresh every 5 minutes
+    const t = setInterval(() => load(period, applied), 300_000); // every 5 minutes
     return () => clearInterval(t);
-  }, [period, load, paused]);
+  }, [period, load, paused, applied]);
 
   async function saveBreakEven(monthly) {
     const res = await fetch('/api/settings', {
@@ -249,9 +317,11 @@ export default function Dashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ monthlyBreakEven: monthly }),
     });
-    if (res.ok) load(period);
+    if (res.ok) load(period, applied);
     else setError('Failed to save break-even target');
   }
+
+  const customValid = from && to && from <= to;
 
   return (
     <div className="container">
@@ -267,16 +337,45 @@ export default function Dashboard() {
               : 'Loading…'}
           </div>
         </div>
-        <div className="period-filter">
-          {PERIODS.map((p) => (
-            <button
-              key={p.id}
-              className={period === p.id ? 'active' : ''}
-              onClick={() => setPeriod(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div>
+          <div className="period-filter">
+            {PERIODS.map((p) => (
+              <button
+                key={p.id}
+                className={period === p.id ? 'active' : ''}
+                onClick={() => setPeriod(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {period === 'custom' && (
+            <div className="date-range">
+              <input
+                type="date"
+                value={from}
+                max={to || todayStr()}
+                onChange={(e) => setFrom(e.target.value)}
+                aria-label="Start date"
+              />
+              <span className="detail">→</span>
+              <input
+                type="date"
+                value={to}
+                min={from}
+                onChange={(e) => setTo(e.target.value)}
+                aria-label="End date"
+              />
+              <button
+                className="btn-small"
+                disabled={!customValid}
+                onClick={() => setApplied({ from, to })}
+              >
+                Apply
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -290,7 +389,7 @@ export default function Dashboard() {
       {!data && !error && <div className="spinner">Loading metrics…</div>}
 
       {data && (
-        <>
+        <div className="dash-stack">
           <BreakEven breakEven={data.breakEven} revenue={data.revenue.value} onSave={saveBreakEven} />
 
           <div className="grid">
@@ -304,7 +403,7 @@ export default function Dashboard() {
               value={num(data.jobs.value)}
               delta={<Delta value={data.jobs.value} prev={data.jobs.prev} />}
             />
-            <UtilizationCard data={data} onSaved={() => load(period)} onPickerOpen={setPaused} />
+            <UtilizationCard data={data} onSaved={() => load(period, applied)} onPickerOpen={setPaused} />
             <MetricCard
               label="Lead Volume"
               value={num(data.leads.value)}
@@ -339,17 +438,14 @@ export default function Dashboard() {
             )}
 
             {data.reviews && data.reviews.rating != null && (
-              <MetricCard
-                label="Google Rating"
-                value={`${data.reviews.rating.toFixed(1)} ★`}
-                delta={<div className="delta flat">{num(data.reviews.count)} reviews</div>}
-                detail="current total, not period-based"
-              />
+              <ReviewsCard reviews={data.reviews} />
             )}
           </div>
 
           <div className="card wide chart-card">
-            <div className="label">Revenue Trend</div>
+            <div className="label">
+              Revenue Trend {data.trendStartLabel ? `· monthly since ${data.trendStartLabel}` : ''}
+            </div>
             <div style={{ width: '100%', height: 260, marginTop: 16 }}>
               <ResponsiveContainer>
                 <AreaChart data={data.revenue.series} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
@@ -375,7 +471,7 @@ export default function Dashboard() {
           <div className="footer">
             Auto-refreshes every 5 min · Sources: Housecall Pro{data.mode === 'live' ? '' : ' (mock)'} + Ringba
           </div>
-        </>
+        </div>
       )}
     </div>
   );

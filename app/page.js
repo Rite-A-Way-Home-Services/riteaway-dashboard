@@ -473,7 +473,7 @@ export default function Dashboard() {
         STEP,
         Math.ceil(
           Math.max(
-            ...data.revenue.series.map((s) => s.revenue || 0),
+            ...data.revenue.series.map((s) => s.revenue ?? 0),
             data.breakEven.monthlyTarget || 0
           ) / STEP
         ) * STEP
@@ -591,7 +591,7 @@ export default function Dashboard() {
                     tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}
                   />
                   <Tooltip
-                    formatter={(v) => [usd(v), 'Revenue']}
+                    formatter={(v) => [v == null ? 'still loading' : usd(v), 'Revenue']}
                     cursor={{ fill: 'rgba(3,105,161,0.06)' }}
                     contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, color: '#131a26', boxShadow: '0 4px 12px rgba(16,24,40,0.08)' }}
                   />
@@ -607,7 +607,7 @@ export default function Dashboard() {
                     {data.revenue.series.map((d, i) => (
                       <Cell
                         key={i}
-                        fill={d.revenue >= data.breakEven.monthlyTarget ? '#15803d' : '#0369a1'}
+                        fill={d.revenue == null ? '#e2e8f0' : d.revenue >= data.breakEven.monthlyTarget ? '#15803d' : '#0369a1'}
                       />
                     ))}
                   </Bar>

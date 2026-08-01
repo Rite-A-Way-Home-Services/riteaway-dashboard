@@ -25,8 +25,13 @@ export async function GET(req) {
     period === 'custom' ? { from: params.get('from'), to: params.get('to') } : null;
   const cacheKey = custom ? `custom:${custom.from}:${custom.to}` : period;
 
+  // fresh=1 skips the cache entirely. The client sends it right after saving a
+  // setting, since this instance's cache (or another instance's) would
+  // otherwise keep serving pre-save numbers for up to 5 minutes.
+  const fresh = params.get('fresh') === '1';
+
   const hit = cache().get(cacheKey);
-  if (hit && Date.now() - hit.ts < TTL_MS) {
+  if (!fresh && hit && Date.now() - hit.ts < TTL_MS) {
     return NextResponse.json({ ...hit.data, cached: true });
   }
 

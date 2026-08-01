@@ -418,12 +418,13 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const [paused, setPaused] = useState(false);
 
-  const load = useCallback(async (s) => {
+  const load = useCallback(async (s, opts = {}) => {
     setError('');
-    const qs =
+    const base =
       s.period === 'custom'
         ? `period=custom&from=${s.from}&to=${s.to}`
         : `period=${s.period}`;
+    const qs = opts.fresh ? `${base}&fresh=1` : base;
     try {
       const res = await fetch(`/api/metrics?${qs}`, { cache: 'no-store' });
       if (res.status === 401) { window.location.href = '/login'; return; }
@@ -460,21 +461,25 @@ export default function Dashboard() {
       body: JSON.stringify({ monthlyBreakEven: monthly }),
     });
     if (!res.ok) return false;
-    await load(sel);
+    await load(sel, { fresh: true });
     return true;
   }
 
-  // Chart ceiling: tallest bar or the break-even line, whichever is higher.
+  // Chart ceiling rounded up to a clean $50k step, with ticks every $50k
+  // ($0, $50k, $100k, …) so the axis reads at a glance.
+  const STEP = 50_000;
   const chartMax = data
-    ? Math.ceil(
-        (Math.max(
-          ...data.revenue.series.map((s) => s.revenue || 0),
-          data.breakEven.monthlyTarget || 0
-        ) *
-          1.08) /
-          1000
-      ) * 1000
-    : 0;
+    ? Math.max(
+        STEP,
+        Math.ceil(
+          Math.max(
+            ...data.revenue.series.map((s) => s.revenue || 0),
+            data.breakEven.monthlyTarget || 0
+          ) / STEP
+        ) * STEP
+      )
+    : STEP;
+  const chartTicks = Array.from({ length: chartMax / STEP + 1 }, (_, i) => i * STEP);
 
   return (
     <div className="container">
@@ -528,7 +533,7 @@ export default function Dashboard() {
               value={num(data.jobs.value)}
               delta={<Delta value={data.jobs.value} prev={data.jobs.prev} />}
             />
-            <UtilizationCard data={data} onSaved={() => load(sel)} onPickerOpen={setPaused} />
+            <UtilizationCard data={data} onSaved={() => load(sel, { fresh: true })} onPickerOpen={setPaused} />
             <MetricCard
               label="Lead Volume"
               value={num(data.leads.value)}
@@ -563,7 +568,7 @@ export default function Dashboard() {
             )}
 
             {data.reviews && data.reviews.rating != null && (
-              <ReviewsCard reviews={data.reviews} onSaved={() => load(sel)} onEditOpen={setPaused} />
+              <ReviewsCard reviews={data.reviews} onSaved={() => load(sel, { fresh: true })} onEditOpen={setPaused} />
             )}
           </div>
 
@@ -582,6 +587,7 @@ export default function Dashboard() {
                     fontSize={11}
                     tickLine={false}
                     domain={[0, chartMax]}
+                    ticks={chartTicks}
                     tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}
                   />
                   <Tooltip

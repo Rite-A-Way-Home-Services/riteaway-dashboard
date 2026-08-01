@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts';
 
 const PERIODS = [
@@ -448,22 +448,46 @@ export default function Dashboard() {
             </div>
             <div style={{ width: '100%', height: 260, marginTop: 16 }}>
               <ResponsiveContainer>
-                <AreaChart data={data.revenue.series} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#1e2a45" strokeDasharray="3 3" />
+                <BarChart data={data.revenue.series} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
+                  <CartesianGrid stroke="#1e2a45" strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" stroke="#8b9bbd" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#8b9bbd" fontSize={11} tickLine={false} tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} />
+                  {/* Domain always includes the break-even line so it stays visible. */}
+                  <YAxis
+                    stroke="#8b9bbd"
+                    fontSize={11}
+                    tickLine={false}
+                    domain={[0, (dataMax) => Math.ceil((Math.max(dataMax, data.breakEven.monthlyTarget) * 1.08) / 1000) * 1000]}
+                    tickFormatter={(v) => `$${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}
+                  />
                   <Tooltip
                     formatter={(v) => [usd(v), 'Revenue']}
+                    cursor={{ fill: 'rgba(56,189,248,0.08)' }}
                     contentStyle={{ background: '#111a2e', border: '1px solid #1e2a45', borderRadius: 8, color: '#e8eefc' }}
                   />
-                  <Area type="monotone" dataKey="revenue" stroke="#38bdf8" strokeWidth={2} fill="url(#rev)" />
-                </AreaChart>
+                  {/* Green bars cleared break-even that month, blue fell short. */}
+                  <Bar dataKey="revenue" radius={[3, 3, 0, 0]} maxBarSize={48}>
+                    {data.revenue.series.map((d, i) => (
+                      <Cell
+                        key={i}
+                        fill={d.revenue >= data.breakEven.monthlyTarget ? '#34d399' : '#38bdf8'}
+                      />
+                    ))}
+                  </Bar>
+                  {/* Monthly break-even line — months above it cleared costs. */}
+                  <ReferenceLine
+                    y={data.breakEven.monthlyTarget}
+                    stroke="#34d399"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    ifOverflow="extendDomain"
+                    label={{
+                      value: `break-even ${usd(data.breakEven.monthlyTarget)}`,
+                      position: 'insideTopLeft',
+                      fill: '#34d399',
+                      fontSize: 11,
+                    }}
+                  />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </div>

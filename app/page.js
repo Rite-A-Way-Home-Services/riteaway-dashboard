@@ -37,6 +37,47 @@ function MetricCard({ label, value, delta, detail }) {
   );
 }
 
+// One ranked bar list (a lead-source breakdown). Bars scale to the top source.
+function SourceBars({ title, rows, unit }) {
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  return (
+    <div style={{ flex: 1, minWidth: 240 }}>
+      <div className="detail" style={{ marginBottom: 10, color: 'var(--text-dim)' }}>{title}</div>
+      {rows.length === 0 && <div className="detail">No data this period</div>}
+      {rows.map((r) => (
+        <div key={r.source} style={{ marginBottom: 9 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, marginBottom: 3 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.source}</span>
+            <span style={{ color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+              {num(r.count)}{unit ? ` ${unit}` : ''}
+            </span>
+          </div>
+          <div style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ width: `${(r.count / max) * 100}%`, height: '100%', background: 'var(--accent)' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LeadSourcesCard({ leadSources }) {
+  const { byCampaign = [], byHcpSource = [] } = leadSources || {};
+  return (
+    <div className="card wide">
+      <div className="label">Lead Sources · most productive by volume</div>
+      <div style={{ display: 'flex', gap: 32, marginTop: 16, flexWrap: 'wrap' }}>
+        <SourceBars title="Calls by campaign (Ringba)" rows={byCampaign} unit="calls" />
+        <SourceBars title="Booked jobs by lead source (Housecall Pro)" rows={byHcpSource} unit="jobs" />
+      </div>
+      <div className="detail" style={{ marginTop: 12, color: 'var(--text-dim)' }}>
+        Ringba campaigns are your live lead source. HCP job sources fill in wherever the
+        “lead source” field is set on a job — blanks show as Untracked.
+      </div>
+    </div>
+  );
+}
+
 function ReviewsCard({ reviews, onSaved, onEditOpen }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -571,6 +612,8 @@ export default function Dashboard() {
               <ReviewsCard reviews={data.reviews} onSaved={() => load(sel, { fresh: true })} onEditOpen={setPaused} />
             )}
           </div>
+
+          {data.leadSources && <LeadSourcesCard leadSources={data.leadSources} />}
 
           <div className="card wide chart-card">
             <div className="label">

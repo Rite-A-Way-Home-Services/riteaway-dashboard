@@ -43,6 +43,7 @@ Then add those plus `GOOGLE_ADS_CUSTOMER_ID` (digits only) — and `GOOGLE_ADS_L
 - **Tech utilization** — scheduled job hours ÷ (tech count × work hours/day × business days).
 - **Call volume** — Ringba inbound calls + HCP-sourced calls. *v1 note: the HCP portion is 0 — HCP's public API doesn't expose call logs. If you use HCP's call tracking or another phone source, wire it into `computeLive()` where `hcpCalls` is defined.*
 - **Lead volume** — HCP estimates created + unique Ringba inbound callers. A v1 heuristic; refine the formula in `lib/metrics.js` as you learn what correlates with real leads.
+- **Lead sources** — which sources produce the most leads, ranked by volume, for the selected period. Ringba calls grouped by **campaign** (`lib/ringba.js` requests the `campaignName` column, retrying without it if Ringba rejects it so call volume is never affected); HCP jobs grouped by the job/customer **`lead_source`** field (blank → *Untracked*). Surfaced in the **Lead Sources** panel.
 - **Break-even** — monthly target (editable in the dashboard header), prorated: day = ×12÷365, week = ×12÷52, quarter = ×3, year = ×12, all-time = × months since `BUSINESS_START`.
 
 ## Things to verify on first live run
@@ -51,6 +52,7 @@ Both vendors' docs are behind JS-rendered portals, so two integration details ar
 
 1. **HCP auth header** — `lib/housecall.js` sends `Authorization: Bearer <key>`. If you get 401s, set `HCP_AUTH_SCHEME=Token`.
 2. **Ringba call-log request** — `lib/ringba.js` POSTs to `/v2/{accountId}/calllogs` with `reportStart`/`reportEnd`. If the response shape differs, adjust the `records` extraction in that file.
+3. **Ringba lead-source column** — the Lead Sources panel groups calls by the `campaignName` column. If your campaigns show as *Untracked*, the distinguishing dimension may be publisher/tag instead; adjust the value column in `lib/ringba.js`.
 
 Watch the yellow warning banners on the dashboard — API failures surface there rather than breaking the page.
 

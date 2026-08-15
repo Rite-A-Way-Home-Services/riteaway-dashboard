@@ -49,7 +49,7 @@ function SourceBars({ title, rows, unit }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, marginBottom: 3 }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.source}</span>
             <span style={{ color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
-              {num(r.count)}{unit ? ` ${unit}` : ''}
+              {num(r.count)}{unit ? ` ${r.count === 1 ? unit.replace(/s$/, '') : unit}` : ''}
             </span>
           </div>
           <div style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
@@ -78,56 +78,9 @@ function LeadSourcesCard({ leadSources }) {
   );
 }
 
-function ReviewsCard({ reviews, onSaved, onEditOpen }) {
+function ReviewsCard({ reviews }) {
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [rows, setRows] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
   const many = (reviews.locations || []).length > 1;
-
-  const blank = { label: '', count: '', rating: '' };
-
-  function openEditor() {
-    const existing = (reviews.manual || []).map((m) => ({
-      label: m.label || '',
-      count: String(m.count ?? ''),
-      rating: String(m.rating ?? ''),
-    }));
-    setRows(existing.length ? existing : [{ ...blank }]);
-    setErr('');
-    setEditing(true);
-    onEditOpen(true);
-  }
-
-  function setRow(i, patch) {
-    setRows((cur) => cur.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  }
-  function closeEditor() {
-    setEditing(false);
-    setErr('');
-    onEditOpen(false);
-  }
-
-  async function saveManual() {
-    setBusy(true);
-    setErr('');
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manualReviews: rows }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'save failed');
-      closeEditor();
-      onSaved();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <div className="card">
@@ -135,7 +88,7 @@ function ReviewsCard({ reviews, onSaved, onEditOpen }) {
       <div className="value">{reviews.rating.toFixed(2)} ★</div>
       <div className="delta flat">{num(reviews.count)} reviews</div>
       <div className="detail">
-        {many ? `${reviews.locations.length} sources · weighted` : 'current total'}
+        {many ? `${reviews.locations.length} listings · weighted` : 'current total'}
         {' · '}
         <button
           className="btn-ghost"
@@ -145,71 +98,6 @@ function ReviewsCard({ reviews, onSaved, onEditOpen }) {
           {open ? 'hide' : 'details'}
         </button>
       </div>
-
-      {open && editing && (
-        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-          <div className="detail" style={{ marginBottom: 8 }}>
-            Service-area listings (entered by hand)
-          </div>
-
-          {rows.map((r, i) => (
-            <div key={i} className="manual-row">
-              <label className="mini-field" style={{ flex: 1, minWidth: 120 }}>
-                <span>Area</span>
-                <input
-                  style={{ width: '100%' }}
-                  value={r.label}
-                  onChange={(e) => setRow(i, { label: e.target.value })}
-                  placeholder="e.g. Mesa"
-                />
-              </label>
-              <label className="mini-field" style={{ width: 78 }}>
-                <span># reviews</span>
-                <input
-                  style={{ width: '100%' }}
-                  value={r.count}
-                  onChange={(e) => setRow(i, { count: e.target.value })}
-                  inputMode="numeric"
-                  placeholder="120"
-                />
-              </label>
-              <label className="mini-field" style={{ width: 70 }}>
-                <span>Avg ★</span>
-                <input
-                  style={{ width: '100%' }}
-                  value={r.rating}
-                  onChange={(e) => setRow(i, { rating: e.target.value })}
-                  inputMode="decimal"
-                  placeholder="4.8"
-                />
-              </label>
-              <button
-                className="btn-ghost"
-                style={{ padding: '4px 8px', alignSelf: 'flex-end' }}
-                onClick={() => setRows((cur) => (cur.length > 1 ? cur.filter((_, j) => j !== i) : [{ ...blank }]))}
-                aria-label="Remove listing"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            <button
-              className="btn-ghost"
-              style={{ fontSize: 11, padding: '4px 10px' }}
-              onClick={() => setRows((cur) => [...cur, { ...blank }])}
-            >
-              + add listing
-            </button>
-            <button className="btn-small" onClick={saveManual} disabled={busy}>
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-            <button className="btn-ghost" onClick={closeEditor}>Cancel</button>
-          </div>
-          {err && <div className="detail" style={{ color: 'var(--red)', marginTop: 6 }}>{err}</div>}
-        </div>
-      )}
 
       {open && (
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
@@ -231,15 +119,6 @@ function ReviewsCard({ reviews, onSaved, onEditOpen }) {
             <div className="detail" style={{ color: 'var(--amber)', marginTop: 6 }}>
               {reviews.failures.length} listing(s) couldn’t be read
             </div>
-          )}
-          {!editing && (
-            <button
-              className="btn-ghost"
-              style={{ marginTop: 8, fontSize: 11, padding: '4px 10px' }}
-              onClick={openEditor}
-            >
-              {(reviews.manual || []).length ? 'edit service-area listings' : 'add service-area listings'}
-            </button>
           )}
         </div>
       )}
@@ -609,7 +488,7 @@ export default function Dashboard() {
             )}
 
             {data.reviews && data.reviews.rating != null && (
-              <ReviewsCard reviews={data.reviews} onSaved={() => load(sel, { fresh: true })} onEditOpen={setPaused} />
+              <ReviewsCard reviews={data.reviews} />
             )}
           </div>
 

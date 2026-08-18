@@ -65,7 +65,7 @@ function LeadSourcesCard({ leadSources }) {
   const { byCampaign = [], byHcpSource = [] } = leadSources || {};
   return (
     <div className="card wide">
-      <div className="label">Lead Sources · most productive by volume</div>
+      <div className="label">Call Sources · most productive by volume</div>
       <div style={{ display: 'flex', gap: 32, marginTop: 16, flexWrap: 'wrap' }}>
         <SourceBars title="Calls by campaign (Ringba)" rows={byCampaign} unit="calls" />
         <SourceBars title="Booked jobs by lead source (Housecall Pro)" rows={byHcpSource} unit="jobs" />
@@ -444,9 +444,19 @@ export default function Dashboard() {
 
           <div className="grid">
             <MetricCard
-              label="Revenue"
+              label="Total Booked Revenue"
               value={usd(data.revenue.value)}
               delta={<Delta value={data.revenue.value} prev={data.revenue.prev} />}
+            />
+            <MetricCard
+              label="Garage Revenue"
+              value={usd(data.revenue.garage)}
+              detail="booked jobs classified Garage"
+            />
+            <MetricCard
+              label="Gates Revenue"
+              value={usd(data.revenue.gate)}
+              detail="booked jobs classified Gates"
             />
             <MetricCard
               label="Jobs"
